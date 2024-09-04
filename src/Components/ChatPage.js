@@ -16,12 +16,18 @@ function ChatPage({ user, onLogout }) {
   // Fetch all users (contacts) when component mounts
   useEffect(() => {
     const fetchUsers = async () => {
-      const response = await fetch(`${backendUrl}/users`);
-      const data = await response.json();
-      if (data.success) {
-        // Filter out the current user's own contact
-        const filteredContacts = data.users.filter(contact => contact._id !== user._id);
-        setContacts(filteredContacts);
+      try {
+        const response = await fetch(`${backendUrl}/users`);
+        const data = await response.json();
+        if (data.success) {
+          // Filter out the current user's own contact
+          const filteredContacts = data.users.filter(contact => contact._id !== user._id);
+          setContacts(filteredContacts);
+        } else {
+          console.error('Failed to fetch users:', data.message);
+        }
+      } catch (error) {
+        console.error('Error fetching users:', error);
       }
     };
 
@@ -32,10 +38,16 @@ function ChatPage({ user, onLogout }) {
   useEffect(() => {
     if (selectedUser) {
       const fetchChats = async () => {
-        const response = await fetch(`${backendUrl}/chat-history/${user._id}/${selectedUser._id}`);
-        const data = await response.json();
-        if (data.success) {
-          setChats(data.chatHistory);
+        try {
+          const response = await fetch(`${backendUrl}/chat-history/${user._id}/${selectedUser._id}`);
+          const data = await response.json();
+          if (data.success) {
+            setChats(data.chatHistory);
+          } else {
+            console.error('Failed to fetch chat history:', data.message);
+          }
+        } catch (error) {
+          console.error('Error fetching chat history:', error);
         }
       };
 
@@ -141,18 +153,8 @@ function ChatPage({ user, onLogout }) {
                     key={contact._id}
                     active={selectedUser && selectedUser._id === contact._id}
                     onClick={() => setSelectedUser(contact)}
-                    className="d-flex align-items-center"
                   >
-                    <Image
-                      src={`${backendUrl}${contact.profilePicture || '/default-profile.png'}`}
-                      alt="Profile"
-                      roundedCircle
-                      style={{ width: '40px', height: '40px', objectFit: 'cover', marginRight: '10px' }}
-                    />
-                    <div>
-                      <div>{contact.name}</div>
-                      <small className="text-muted">({contact.phoneNumber})</small>
-                    </div>
+                    {contact.name} ({contact.phoneNumber})
                   </ListGroup.Item>
                 ))
               ) : (
