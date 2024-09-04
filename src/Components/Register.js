@@ -78,6 +78,9 @@ const handleSendOtp = async (e) => {
           <Card className="shadow-sm">
             <Card.Body>
               <h2 className="text-center mb-4">Register</h2>
+              <small className="text-muted d-block text-center mb-3">Inorder to access this app contact me. Bcoz i used twilio for verification</small>
+
+              
               {error && <Alert variant="danger">{error}</Alert>}
               <Form onSubmit={otpSent ? handleVerifyOtp : handleSendOtp}>
                 <Form.Group controlId="formPhoneNumber" className="mb-3">
