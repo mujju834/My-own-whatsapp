@@ -16,6 +16,8 @@ function ChatPage({ user, onLogout }) {
   const [callerSignal, setCallerSignal] = useState(null);
   const [stream, setStream] = useState();
   const [callEnded, setCallEnded] = useState(false);
+  const [caller, setCaller] = useState(null); // Store the caller's ID for incoming calls
+  const [receivingCall, setReceivingCall] = useState(false); // To notify the user about the incoming call
 
   const backendUrl = process.env.REACT_APP_BACKEND_URL;
   const myVideo = useRef();
@@ -60,30 +62,23 @@ function ChatPage({ user, onLogout }) {
     }
   }, [selectedUser, backendUrl, user._id]);
 
+  // Handle incoming call notification
   useEffect(() => {
-    if (selectedUser && socket) {
-      socket.emit('join_room', { senderId: user._id, receiverId: selectedUser._id });
+    socket.on('incoming_call', (data) => {
+      setIncomingCall(true);
+      setCaller(data.from);
+      setCallerSignal(data.signalData);
+    });
 
-      socket.on('receive_message', (message) => {
-        setChats((prevChats) => [...prevChats, message]);
-      });
-
-      socket.on('incoming_call', (data) => {
-        setIncomingCall(true);
-        setCallerSignal(data.signalData);
-      });
-
-      socket.on('call_ended', () => {
-        endCall();
-      });
-    }
+    socket.on('call_ended', () => {
+      endCall();
+    });
 
     return () => {
-      socket.off('receive_message');
       socket.off('incoming_call');
       socket.off('call_ended');
     };
-  }, [selectedUser, user._id]);
+  }, []);
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
@@ -111,25 +106,10 @@ function ChatPage({ user, onLogout }) {
     }
   };
 
-  const handleLogoutClick = () => {
-    setShowModal(true);
-  };
-
-  const confirmLogout = () => {
-    setShowModal(false);
-    onLogout();
-    window.location.reload();
-  };
-
-  const cancelLogout = () => {
-    setShowModal(false);
-  };
-
   const callUser = async () => {
     setIsCalling(true);
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     setStream(stream);
-    myVideo.current.srcObject = stream;
 
     const peer = new window.SimplePeer({
       initiator: true,
@@ -161,9 +141,8 @@ function ChatPage({ user, onLogout }) {
     setIncomingCall(false);
     setCallAccepted(true);
 
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     setStream(stream);
-    myVideo.current.srcObject = stream;
 
     const peer = new window.SimplePeer({
       initiator: false,
@@ -173,7 +152,7 @@ function ChatPage({ user, onLogout }) {
 
     peer.on('signal', (data) => {
       socket.emit('accept_call', {
-        callerId: selectedUser._id,
+        callerId: caller,
         signalData: data,
       });
     });
@@ -186,10 +165,14 @@ function ChatPage({ user, onLogout }) {
     connectionRef.current = peer;
   };
 
+  const declineCall = () => {
+    setIncomingCall(false);
+    socket.emit('decline_call', { callerId: caller });
+  };
+
   const endCall = () => {
     setCallEnded(true);
     connectionRef.current.destroy();
-    socket.emit('hang_up', { callerId: user._id, receiverId: selectedUser._id });
     setStream(null);
   };
 
@@ -288,6 +271,9 @@ function ChatPage({ user, onLogout }) {
                   )}
                   {incomingCall && !callAccepted && (
                     <Button onClick={acceptCall} variant="primary">Answer</Button>
+                  )}
+                  {incomingCall && !callAccepted && (
+                    <Button onClick={declineCall} variant="danger">Decline</Button>
                   )}
                   {callAccepted && (
                     <Button onClick={endCall} variant="danger">End Call</Button>
