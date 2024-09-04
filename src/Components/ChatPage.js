@@ -15,13 +15,14 @@ function ChatPage({ user, onLogout }) {
   const [incomingCall, setIncomingCall] = useState(false);
   const [callAccepted, setCallAccepted] = useState(false);
   const [callerSignal, setCallerSignal] = useState(null);
-  const [stream, setStream] = useState();
+  const [stream, setStream] = useState(null);
   const [callEnded, setCallEnded] = useState(false);
-
+  
   const backendUrl = process.env.REACT_APP_BACKEND_URL;
   const audioRef = useRef();
   const connectionRef = useRef();
 
+  // Fetch all users (contacts)
   useEffect(() => {
     const fetchUsers = async () => {
       try {
@@ -41,6 +42,7 @@ function ChatPage({ user, onLogout }) {
     fetchUsers();
   }, [backendUrl, user._id]);
 
+  // Fetch chat history with selected user
   useEffect(() => {
     if (selectedUser) {
       const fetchChats = async () => {
@@ -60,6 +62,7 @@ function ChatPage({ user, onLogout }) {
     }
   }, [selectedUser, backendUrl, user._id]);
 
+  // Set up real-time message and call listeners
   useEffect(() => {
     if (selectedUser && socket) {
       socket.emit('join_room', { senderId: user._id, receiverId: selectedUser._id });
@@ -85,6 +88,7 @@ function ChatPage({ user, onLogout }) {
     };
   }, [selectedUser, user._id]);
 
+  // Send a message
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !selectedUser) return;
@@ -111,6 +115,7 @@ function ChatPage({ user, onLogout }) {
     }
   };
 
+  // Call another user
   const callUser = async () => {
     setIsCalling(true);
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -143,6 +148,7 @@ function ChatPage({ user, onLogout }) {
     connectionRef.current = peer;
   };
 
+  // Accept a call
   const acceptCall = async () => {
     setIncomingCall(false);
     setCallAccepted(true);
@@ -172,6 +178,7 @@ function ChatPage({ user, onLogout }) {
     connectionRef.current = peer;
   };
 
+  // End the call
   const endCall = () => {
     setCallEnded(true);
     connectionRef.current.destroy();
@@ -179,6 +186,7 @@ function ChatPage({ user, onLogout }) {
     setStream(null);
   };
 
+  // Handle Logout
   const handleLogoutClick = () => {
     setShowModal(true);
   };
