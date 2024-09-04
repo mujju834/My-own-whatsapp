@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Container, Row, Col, Card, Button, ListGroup, Image, Modal, Form } from 'react-bootstrap';
 import io from 'socket.io-client';
 
@@ -10,17 +10,24 @@ function ChatPage({ user, onLogout }) {
   const [selectedUser, setSelectedUser] = useState(null);
   const [newMessage, setNewMessage] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [isCalling, setIsCalling] = useState(false);
+  const [incomingCall, setIncomingCall] = useState(false);
+  const [callAccepted, setCallAccepted] = useState(false);
+  const [callerSignal, setCallerSignal] = useState(null);
+  const [stream, setStream] = useState();
+  const [callEnded, setCallEnded] = useState(false);
 
   const backendUrl = process.env.REACT_APP_BACKEND_URL;
+  const myVideo = useRef();
+  const userVideo = useRef();
+  const connectionRef = useRef();
 
-  // Fetch all users (contacts) when component mounts
   useEffect(() => {
     const fetchUsers = async () => {
       try {
         const response = await fetch(`${backendUrl}/users`);
         const data = await response.json();
         if (data.success) {
-          // Filter out the current user's own contact
           const filteredContacts = data.users.filter(contact => contact._id !== user._id);
           setContacts(filteredContacts);
         } else {
@@ -34,7 +41,6 @@ function ChatPage({ user, onLogout }) {
     fetchUsers();
   }, [backendUrl, user._id]);
 
-  // Fetch chat history with the selected user
   useEffect(() => {
     if (selectedUser) {
       const fetchChats = async () => {
@@ -50,12 +56,10 @@ function ChatPage({ user, onLogout }) {
           console.error('Error fetching chat history:', error);
         }
       };
-
       fetchChats();
     }
   }, [selectedUser, backendUrl, user._id]);
 
-  // Listen for real-time messages
   useEffect(() => {
     if (selectedUser && socket) {
       socket.emit('join_room', { senderId: user._id, receiverId: selectedUser._id });
@@ -63,10 +67,21 @@ function ChatPage({ user, onLogout }) {
       socket.on('receive_message', (message) => {
         setChats((prevChats) => [...prevChats, message]);
       });
+
+      socket.on('incoming_call', (data) => {
+        setIncomingCall(true);
+        setCallerSignal(data.signalData);
+      });
+
+      socket.on('call_ended', () => {
+        endCall();
+      });
     }
 
     return () => {
       socket.off('receive_message');
+      socket.off('incoming_call');
+      socket.off('call_ended');
     };
   }, [selectedUser, user._id]);
 
@@ -102,16 +117,80 @@ function ChatPage({ user, onLogout }) {
 
   const confirmLogout = () => {
     setShowModal(false);
-
-    // Trigger the logout function
     onLogout();
-
-    // Reload the page immediately to complete the logout process
     window.location.reload();
   };
 
   const cancelLogout = () => {
     setShowModal(false);
+  };
+
+  const callUser = async () => {
+    setIsCalling(true);
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    setStream(stream);
+    myVideo.current.srcObject = stream;
+
+    const peer = new window.SimplePeer({
+      initiator: true,
+      trickle: false,
+      stream: stream,
+    });
+
+    peer.on('signal', (data) => {
+      socket.emit('call_user', {
+        callerId: user._id,
+        receiverId: selectedUser._id,
+        signalData: data,
+      });
+    });
+
+    peer.on('stream', (currentStream) => {
+      userVideo.current.srcObject = currentStream;
+    });
+
+    socket.on('call_accepted', (signal) => {
+      setCallAccepted(true);
+      peer.signal(signal);
+    });
+
+    connectionRef.current = peer;
+  };
+
+  const acceptCall = async () => {
+    setIncomingCall(false);
+    setCallAccepted(true);
+
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    setStream(stream);
+    myVideo.current.srcObject = stream;
+
+    const peer = new window.SimplePeer({
+      initiator: false,
+      trickle: false,
+      stream: stream,
+    });
+
+    peer.on('signal', (data) => {
+      socket.emit('accept_call', {
+        callerId: selectedUser._id,
+        signalData: data,
+      });
+    });
+
+    peer.on('stream', (currentStream) => {
+      userVideo.current.srcObject = currentStream;
+    });
+
+    peer.signal(callerSignal);
+    connectionRef.current = peer;
+  };
+
+  const endCall = () => {
+    setCallEnded(true);
+    connectionRef.current.destroy();
+    socket.emit('hang_up', { callerId: user._id, receiverId: selectedUser._id });
+    setStream(null);
   };
 
   return (
@@ -131,7 +210,7 @@ function ChatPage({ user, onLogout }) {
                 />
               ) : (
                 <Image
-                  src="/default-profile.png" // Fallback image
+                  src="/default-profile.png"
                   alt="Profile"
                   roundedCircle
                   className="mb-3"
@@ -186,24 +265,45 @@ function ChatPage({ user, onLogout }) {
               )}
             </ListGroup>
             {selectedUser && (
-              <Card.Footer>
-                <Form onSubmit={handleSendMessage}>
-                  <Form.Group controlId="newMessage">
-                    <Form.Control
-                      type="text"
-                      placeholder="Type a message"
-                      value={newMessage}
-                      onChange={(e) => setNewMessage(e.target.value)}
-                      required
-                    />
-                  </Form.Group>
-                  <Button type="submit" variant="primary" className="mt-2 w-100">
-                    Send Message
-                  </Button>
-                </Form>
-              </Card.Footer>
+              <>
+                <Card.Footer>
+                  <Form onSubmit={handleSendMessage}>
+                    <Form.Group controlId="newMessage">
+                      <Form.Control
+                        type="text"
+                        placeholder="Type a message"
+                        value={newMessage}
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        required
+                      />
+                    </Form.Group>
+                    <Button type="submit" variant="primary" className="mt-2 w-100">
+                      Send Message
+                    </Button>
+                  </Form>
+                </Card.Footer>
+                <div className="d-flex justify-content-center mt-3">
+                  {!callAccepted && !isCalling && (
+                    <Button onClick={callUser} variant="success">Call</Button>
+                  )}
+                  {incomingCall && !callAccepted && (
+                    <Button onClick={acceptCall} variant="primary">Answer</Button>
+                  )}
+                  {callAccepted && (
+                    <Button onClick={endCall} variant="danger">End Call</Button>
+                  )}
+                </div>
+              </>
             )}
           </Card>
+          <Row className="mt-4">
+            <Col md={6}>
+              <video playsInline muted ref={myVideo} autoPlay style={{ width: '300px' }} />
+            </Col>
+            <Col md={6}>
+              <video playsInline ref={userVideo} autoPlay style={{ width: '300px' }} />
+            </Col>
+          </Row>
         </Col>
       </Row>
 
