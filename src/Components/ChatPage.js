@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Container, Row, Col, Card, Button, ListGroup, Image, Modal, Form } from 'react-bootstrap';
 import io from 'socket.io-client';
+import SimplePeer from 'simple-peer'; // Ensure this is installed
 
 const socket = io(process.env.REACT_APP_BACKEND_URL);
 
@@ -16,12 +17,9 @@ function ChatPage({ user, onLogout }) {
   const [callerSignal, setCallerSignal] = useState(null);
   const [stream, setStream] = useState();
   const [callEnded, setCallEnded] = useState(false);
-  const [caller, setCaller] = useState(null); // Store the caller's ID for incoming calls
-  const [receivingCall, setReceivingCall] = useState(false); // To notify the user about the incoming call
 
   const backendUrl = process.env.REACT_APP_BACKEND_URL;
-  const myVideo = useRef();
-  const userVideo = useRef();
+  const audioRef = useRef();
   const connectionRef = useRef();
 
   useEffect(() => {
@@ -62,23 +60,30 @@ function ChatPage({ user, onLogout }) {
     }
   }, [selectedUser, backendUrl, user._id]);
 
-  // Handle incoming call notification
   useEffect(() => {
-    socket.on('incoming_call', (data) => {
-      setIncomingCall(true);
-      setCaller(data.from);
-      setCallerSignal(data.signalData);
-    });
+    if (selectedUser && socket) {
+      socket.emit('join_room', { senderId: user._id, receiverId: selectedUser._id });
 
-    socket.on('call_ended', () => {
-      endCall();
-    });
+      socket.on('receive_message', (message) => {
+        setChats((prevChats) => [...prevChats, message]);
+      });
+
+      socket.on('incoming_call', (data) => {
+        setIncomingCall(true);
+        setCallerSignal(data.signalData);
+      });
+
+      socket.on('call_ended', () => {
+        endCall();
+      });
+    }
 
     return () => {
+      socket.off('receive_message');
       socket.off('incoming_call');
       socket.off('call_ended');
     };
-  }, []);
+  }, [selectedUser, user._id]);
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
@@ -110,8 +115,9 @@ function ChatPage({ user, onLogout }) {
     setIsCalling(true);
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     setStream(stream);
+    audioRef.current.srcObject = stream;
 
-    const peer = new window.SimplePeer({
+    const peer = new SimplePeer({
       initiator: true,
       trickle: false,
       stream: stream,
@@ -126,7 +132,7 @@ function ChatPage({ user, onLogout }) {
     });
 
     peer.on('stream', (currentStream) => {
-      userVideo.current.srcObject = currentStream;
+      audioRef.current.srcObject = currentStream;
     });
 
     socket.on('call_accepted', (signal) => {
@@ -143,8 +149,9 @@ function ChatPage({ user, onLogout }) {
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     setStream(stream);
+    audioRef.current.srcObject = stream;
 
-    const peer = new window.SimplePeer({
+    const peer = new SimplePeer({
       initiator: false,
       trickle: false,
       stream: stream,
@@ -152,28 +159,38 @@ function ChatPage({ user, onLogout }) {
 
     peer.on('signal', (data) => {
       socket.emit('accept_call', {
-        callerId: caller,
+        callerId: selectedUser._id,
         signalData: data,
       });
     });
 
     peer.on('stream', (currentStream) => {
-      userVideo.current.srcObject = currentStream;
+      audioRef.current.srcObject = currentStream;
     });
 
     peer.signal(callerSignal);
     connectionRef.current = peer;
   };
 
-  const declineCall = () => {
-    setIncomingCall(false);
-    socket.emit('decline_call', { callerId: caller });
-  };
-
   const endCall = () => {
     setCallEnded(true);
     connectionRef.current.destroy();
+    socket.emit('hang_up', { callerId: user._id, receiverId: selectedUser._id });
     setStream(null);
+  };
+
+  const handleLogoutClick = () => {
+    setShowModal(true);
+  };
+
+  const confirmLogout = () => {
+    setShowModal(false);
+    onLogout();
+    window.location.reload();
+  };
+
+  const cancelLogout = () => {
+    setShowModal(false);
   };
 
   return (
@@ -272,9 +289,6 @@ function ChatPage({ user, onLogout }) {
                   {incomingCall && !callAccepted && (
                     <Button onClick={acceptCall} variant="primary">Answer</Button>
                   )}
-                  {incomingCall && !callAccepted && (
-                    <Button onClick={declineCall} variant="danger">Decline</Button>
-                  )}
                   {callAccepted && (
                     <Button onClick={endCall} variant="danger">End Call</Button>
                   )}
@@ -283,11 +297,8 @@ function ChatPage({ user, onLogout }) {
             )}
           </Card>
           <Row className="mt-4">
-            <Col md={6}>
-              <video playsInline muted ref={myVideo} autoPlay style={{ width: '300px' }} />
-            </Col>
-            <Col md={6}>
-              <video playsInline ref={userVideo} autoPlay style={{ width: '300px' }} />
+            <Col>
+              <audio playsInline ref={audioRef} autoPlay />
             </Col>
           </Row>
         </Col>
