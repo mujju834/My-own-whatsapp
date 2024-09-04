@@ -141,8 +141,18 @@ function ChatPage({ user, onLogout }) {
                     key={contact._id}
                     active={selectedUser && selectedUser._id === contact._id}
                     onClick={() => setSelectedUser(contact)}
+                    className="d-flex align-items-center"
                   >
-                    {contact.name} ({contact.phoneNumber})
+                    <Image
+                      src={`${backendUrl}${contact.profilePicture || '/default-profile.png'}`}
+                      alt="Profile"
+                      roundedCircle
+                      style={{ width: '40px', height: '40px', objectFit: 'cover', marginRight: '10px' }}
+                    />
+                    <div>
+                      <div>{contact.name}</div>
+                      <small className="text-muted">({contact.phoneNumber})</small>
+                    </div>
                   </ListGroup.Item>
                 ))
               ) : (
